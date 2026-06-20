@@ -245,38 +245,43 @@ with tab4:
         st.write(res.summary)   
 
 
-# Tab5: ARIMA univariate forecast only for aging rate
+# Tab5: ARIMA forecast by Income Group (aggregated yearly average aging rate)
 with tab5:
     col_cfg, col_out = st.columns([1,3])
     with col_cfg:
-        ctry_list = sorted(df_wide["country_code"].unique())
-        sel_c = st.selectbox("Select Country Code", ctry_list)
+        income_list = sorted(df_wide["incomegroup"].dropna().unique())
+        sel_income_grp = st.selectbox("Select Income Group", income_list)
         pred_horizon = st.number_input("Forecast Years", min_value=3, max_value=30, value=10)
         run_ar = st.button("🔍 Run Auto ARIMA", type="primary")
     with col_out:
         if run_ar:
-            ts_df = df_wide[df_wide["country_code"]==sel_c].sort_values("year").dropna(subset=[y_var])
-            ts_series = ts_df[y_var].values
+            # Aggregate: compute average aging rate per year for the selected income group
+            grp_df = df_wide[df_wide["incomegroup"] == sel_income_grp].dropna(subset=[y_var])
+            ts_agg = grp_df.groupby("year")[y_var].mean().sort_index()
+            ts_series = ts_agg.values
+            hist_years = ts_agg.index.values
+
             model = auto_arima(ts_series, trace=False, suppress_warnings=True)
             fc_res = model.predict(n_periods=pred_horizon, return_conf_int=True)
             fc_vals, ci_low, ci_high = fc_res[0], fc_res[1][:,0], fc_res[1][:,1]
-            future_year = np.arange(max(ts_df["year"])+1, max(ts_df["year"])+1+pred_horizon)
+            future_year = np.arange(max(hist_years)+1, max(hist_years)+1+pred_horizon)
 
             fig,ax = plt.subplots(figsize=(12,5))
-            ax.plot(ts_df["year"], ts_series, label="Historical", lw=2)
+            ax.plot(hist_years, ts_series, label="Historical (Group Average)", lw=2)
             ax.plot(future_year, fc_vals, color="red", label="Forecast", lw=2)
             ax.fill_between(future_year, ci_low, ci_high, alpha=0.2, color="gray", label="95% Confidence Interval")
             plt.legend()
-            plt.title(f"ARIMA Forecast: {sel_c} Aging Rate")
+            plt.title(f"ARIMA Forecast: {sel_income_grp} Average Aging Rate")
             st.pyplot(fig)
 
             pred_table = pd.DataFrame({
-                "Future_Year":future_year,
-                "Forecast":np.round(fc_vals,3),
-                "CI_Lower95":np.round(ci_low,3),
-                "CI_Upper95":np.round(ci_high,3)
+                "Future_Year": future_year,
+                "Forecast": np.round(fc_vals,3),
+                "CI_Lower95": np.round(ci_low,3),
+                "CI_Upper95": np.round(ci_high,3)
             })
             st.dataframe(pred_table)
+
 
 # Tab6: Variable definition dictionary page
 with tab6:
