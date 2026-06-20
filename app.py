@@ -8,8 +8,30 @@ from pmdarima import auto_arima
 import warnings
 warnings.filterwarnings("ignore")
 
-# Load dataset file
-df_wide = pd.read_csv("df_wide_final.csv")
+# ===================== Page Layout Setting =====================
+st.set_page_config(page_title="Population Aging Analysis Dashboard", layout="wide")
+st.markdown("### Interactive Dashboard for Population Aging Empirical Research")
+st.markdown("&nbsp;")
+
+# ---------------------- 数据源上传模块（新增） ----------------------
+with st.expander("📁 Data Source Setting (Default: df_wide_final.csv)", expanded=False):
+    uploaded_file = st.file_uploader("Upload your CSV dataset", type="csv")
+    required_cols = ["country_code", "year", "region", "incomegroup", "SP.POP.65UP.TO"]
+    
+    # 默认加载本地文件
+    if uploaded_file is None:
+        df_wide = pd.read_csv("df_wide_final.csv")
+        st.success(f"✅ Using default dataset: df_wide_final.csv | {df_wide.shape[0]} rows, {df_wide.shape[1]} columns")
+    else:
+        # 读取上传文件并校验必填列
+        df_wide = pd.read_csv(uploaded_file)
+        missing = [c for c in required_cols if c not in df_wide.columns]
+        if len(missing) > 0:
+            st.error(f"❌ Uploaded CSV missing required columns: {', '.join(missing)}")
+            st.stop()
+        st.success(f"✅ Using uploaded dataset: {uploaded_file.name} | {df_wide.shape[0]} rows, {df_wide.shape[1]} columns")
+
+# 全局被解释变量
 y_var = "SP.POP.65UP.TO"
 
 # Auto filter columns: remove categorical grouping columns, leave all numeric independent variables
@@ -83,15 +105,10 @@ full_var_map = {
     "SH.XPD.PVTD.PC.CD": "Private health expenditure per capita(current USD)",
     "SH.XPD.PVTD.PP.CD": "Private health expenditure per capita(PPP USD)"
 }
+
 # Auto match variables existing in current dataset only
 exist_var_list = all_numeric_cols
 final_dict = {k:v for k,v in full_var_map.items() if k in exist_var_list or k == y_var}
-
-# ===================== Page Layout Setting =====================
-st.set_page_config(page_title="Population Aging Analysis Dashboard", layout="wide")
-# Leave one blank line below main title
-st.markdown("### Interactive Dashboard for Population Aging Empirical Research")
-st.markdown("&nbsp;")
 
 # Tab order:1 Dataset,2 Correlation,3 Trend,4 Regression,5 ARIMA,6 Variable Dictionary,7 About
 tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
@@ -114,17 +131,14 @@ with tab1:
         sel_region = st.selectbox("Select Region", region_opt)
         min_y, max_y = int(df_wide["year"].min()), int(df_wide["year"].max())
         yr_start, yr_end = st.slider("Select Year Range", min_y, max_y, (min_y, max_y))
-
         df_filter = df_wide.copy()
         if sel_income != "All":
             df_filter = df_filter[df_filter["incomegroup"] == sel_income]
         if sel_region != "All":
             df_filter = df_filter[df_filter["region"] == sel_region]
         df_filter = df_filter[(df_filter["year"]>=yr_start) & (df_filter["year"]<=yr_end)]
-
         csv_data = df_filter.to_csv(index=False).encode("utf-8")
         st.download_button("⬇️ Download Filtered CSV", csv_data, "Filtered_Data.csv")
-
     with col_right:
         st.subheader("Descriptive Statistics")
         desc_df = df_filter[[y_var]+full_independent_list].describe()
@@ -190,60 +204,32 @@ with tab4:
         else:
             mod = PanelOLS(dependent=dep, exog=exog, entity_effects=True, time_effects=True)
         res = mod.fit()
-
-        # ---------------------- Coefficient Bar Chart (Display First) ----------------------
+        # Coefficient Bar Chart
         st.subheader("Coefficient Distribution Bar Chart")
-
-        # Extract coefficient, p-value and confidence interval from regression results
         coef_df = pd.DataFrame({
             "Variable": res.params.index,
             "Coefficient": res.params.values,
             "P_Value": res.pvalues.values
         })
-
-        # Remove constant term, only keep selected independent variables
         coef_df = coef_df[coef_df["Variable"] != "constant"].reset_index(drop=True)
-
-        # Sort data by coefficient value for better visual comparison
         coef_df = coef_df.sort_values("Coefficient").reset_index(drop=True)
-
-        # Create figure, adjust height dynamically based on variable quantity
         fig, ax = plt.subplots(figsize=(11, len(coef_df) * 0.55))
-
-        # Set different colors for positive and negative coefficients
         bar_color = ["#2E86AB" if val > 0 else "#F24236" for val in coef_df["Coefficient"]]
-
-        # Draw horizontal bar chart for regression coefficients
         bars = ax.barh(coef_df["Variable"], coef_df["Coefficient"], color=bar_color, alpha=0.8)
-
-        # Add vertical reference line at 0 to distinguish positive/negative effects
         ax.axvline(x=0, color="black", linestyle="--", linewidth=1.2)
-
-        # Add coefficient value labels next to each bar
         for bar in bars:
             width = bar.get_width()
-            # Adjust label position for positive and negative values
             if width > 0:
                 ax.text(width + 0.01, bar.get_y() + bar.get_height()/2, f"{width:.3f}", va="center", fontsize=9)
             else:
                 ax.text(width - 0.01, bar.get_y() + bar.get_height()/2, f"{width:.3f}", va="center", fontsize=9)
-
-        # Set chart title and axis labels
         ax.set_title("Regression Coefficients of Independent Variables", fontsize=14, pad=15)
         ax.set_xlabel("Coefficient Value", fontsize=12)
         ax.set_ylabel("Independent Variable", fontsize=12)
-
-        # Optimize layout to avoid label overlap
         plt.tight_layout()
-
-        # Render chart in Streamlit
         st.pyplot(fig)
-        
-        # -------------------------------------------------------------------
-        # Display original regression summary table (Display After Chart)
         st.subheader("Regression Result")
-        st.write(res.summary)   
-
+        st.write(res.summary)
 
 # Tab5: ARIMA forecast by Income Group (aggregated yearly average aging rate)
 with tab5:
@@ -255,17 +241,14 @@ with tab5:
         run_ar = st.button("🔍 Run Auto ARIMA", type="primary")
     with col_out:
         if run_ar:
-            # Aggregate: compute average aging rate per year for the selected income group
             grp_df = df_wide[df_wide["incomegroup"] == sel_income_grp].dropna(subset=[y_var])
             ts_agg = grp_df.groupby("year")[y_var].mean().sort_index()
             ts_series = ts_agg.values
             hist_years = ts_agg.index.values
-
             model = auto_arima(ts_series, trace=False, suppress_warnings=True)
             fc_res = model.predict(n_periods=pred_horizon, return_conf_int=True)
             fc_vals, ci_low, ci_high = fc_res[0], fc_res[1][:,0], fc_res[1][:,1]
             future_year = np.arange(max(hist_years)+1, max(hist_years)+1+pred_horizon)
-
             fig,ax = plt.subplots(figsize=(12,5))
             ax.plot(hist_years, ts_series, label="Historical (Group Average)", lw=2)
             ax.plot(future_year, fc_vals, color="red", label="Forecast", lw=2)
@@ -273,7 +256,6 @@ with tab5:
             plt.legend()
             plt.title(f"ARIMA Forecast: {sel_income_grp} Average Aging Rate")
             st.pyplot(fig)
-
             pred_table = pd.DataFrame({
                 "Future_Year": future_year,
                 "Forecast": np.round(fc_vals,3),
@@ -281,7 +263,6 @@ with tab5:
                 "CI_Upper95": np.round(ci_high,3)
             })
             st.dataframe(pred_table)
-
 
 # Tab6: Variable definition dictionary page
 with tab6:
@@ -291,23 +272,20 @@ with tab6:
     st.dataframe(dict_df,use_container_width=True,height=600)
     st.info("All indicators sourced from World Bank World Development Indicators(WDI) Database.")
 
-# Tab7: About page, one blank line below title
+# Tab7: About page
 with tab7:
     st.markdown("### 📖 About This Application")
     st.markdown("&nbsp;")
-
     st.markdown("**Course: WQD7003 – Data Analytics**")
-    st.markdown("**Dataset: World Bank Open Data (1960–2025)**")
+    st.markdown("**Dataset: World Bank Open Data (1960–2025) / Custom Upload CSV**")
     st.markdown("**Core Models: Fixed-Effect Panel Regression + ARIMA Time Series Forecasting**")
-
     st.markdown("#### Purpose")
-    st.markdown("This dashboard supports empirical research on global population ageing: (1) explore how health, medical resource, fertility and socioeconomic indicators affect national elderly population (65+) proportion via panel regression; (2) implement country-level future ageing rate prediction using ARIMA time-series model.")
-
+    st.markdown("This dashboard supports empirical research on global population ageing: (1) explore how health, medical resource, fertility and socioeconomic indicators affect national elderly population (65+) proportion via panel regression; (2) implement income-group-level future ageing rate prediction using ARIMA time-series model.")
     st.markdown("#### Methodology")
     st.markdown("""
 - Panel Fixed-Effect regression for coefficient estimation to identify key driving factors of population ageing
 - Iterative VIF screening (VIF<10) to eliminate severe multicollinearity and filter valid explanatory variables
-- ARIMA univariate time-series model for out-of-sample forecast of national ageing ratio
+- ARIMA univariate time-series model for out-of-sample forecast of group average ageing ratio
 - Grouped time-series visualization by geographic region & national income group for descriptive analysis
 """)
     st.markdown("*Note: All raw indicators are log-transformed and within-group de-meaned before fixed-effect modeling.*")
