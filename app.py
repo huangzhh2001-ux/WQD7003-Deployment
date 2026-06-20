@@ -13,17 +13,17 @@ st.set_page_config(page_title="Population Aging Analysis Dashboard", layout="wid
 st.markdown("### Interactive Dashboard for Population Aging Empirical Research")
 st.markdown("&nbsp;")
 
-# ---------------------- 数据源上传模块（新增） ----------------------
+# ---------------------- Data source upload module ----------------------
 with st.expander("📁 Data Source Setting (Default: df_wide_final.csv)", expanded=False):
     uploaded_file = st.file_uploader("Upload your CSV dataset", type="csv")
     required_cols = ["country_code", "year", "region", "incomegroup", "SP.POP.65UP.TO"]
     
-    # 默认加载本地文件
+    # Default loading of local files
     if uploaded_file is None:
         df_wide = pd.read_csv("df_wide_final.csv")
         st.success(f"✅ Using default dataset: df_wide_final.csv | {df_wide.shape[0]} rows, {df_wide.shape[1]} columns")
     else:
-        # 读取上传文件并校验必填列
+        # Read and verify the uploaded file and check the mandatory fields
         df_wide = pd.read_csv(uploaded_file)
         missing = [c for c in required_cols if c not in df_wide.columns]
         if len(missing) > 0:
@@ -31,7 +31,7 @@ with st.expander("📁 Data Source Setting (Default: df_wide_final.csv)", expand
             st.stop()
         st.success(f"✅ Using uploaded dataset: {uploaded_file.name} | {df_wide.shape[0]} rows, {df_wide.shape[1]} columns")
 
-# 全局被解释变量
+# Global dependent variable
 y_var = "SP.POP.65UP.TO"
 
 # Auto filter columns: remove categorical grouping columns, leave all numeric independent variables
